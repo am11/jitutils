@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
+using System.CommandLine.Parsing;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -113,7 +114,6 @@ namespace ManagedCodeGen
 
         public class Config
         {
-            private ArgumentSyntax _syntaxResult;
             private Commands _command = Commands.Diff;
             private bool _baseSpecified = false;    // True if user specified "--base" or "--base <path>" or "--base <tag>"
             private bool _diffSpecified = false;    // True if user specified "--diff" or "--diff <path>" or "--diff <tag>"
@@ -158,77 +158,80 @@ namespace ManagedCodeGen
             private bool _noJitUtilsRoot = false;
             private bool _validationError = false;
 
-            public Config(string[] args)
+            internal Config(JitDiffRootCommand command)
             {
-                // Get configuration values from JIT_UTILS_ROOT/config.json
+                // Get configuration values from JIT_UTILS_ROOT/config.json.
                 LoadFileConfig();
 
-                _syntaxResult = ArgumentSyntax.Parse(args, syntax =>
+                ParseResult result = command.Result;
+                _command = command.SelectedCommand;
+
+                bool IsSpecified<T>(Option<T> option) => result.GetResult(option) != null;
+                T Get<T>(Option<T> option) => result.GetValue(option);
+
+                if (_command == Commands.Diff)
                 {
-                    // Diff command section.
-                    syntax.DefineCommand("diff", ref _command, Commands.Diff, "Run asm diffs via crossgen.");
+                    _baseSpecified = IsSpecified(command.BasePath);
+                    if (_baseSpecified)
+                    {
+                        _basePath = Get(command.BasePath);
+                    }
 
-                    var baseOption = syntax.DefineOption("b|base", ref _basePath, false,
-                        "The base compiler directory or tag. Will use crossgen, corerun, or clrjit from this directory.");
-                    var diffOption = syntax.DefineOption("d|diff", ref _diffPath, false,
-                        "The diff compiler directory or tag. Will use crossgen, corerun, or clrjit from this directory.");
-                    syntax.DefineOption("crossgen", ref _crossgenExe,
-                        "The crossgen or crossgen2 compiler exe. When this is specified, will use clrjit from the --base and " +
-                        "--diff directories with this crossgen.");
-                    syntax.DefineOption("o|output", ref _outputPath, "The output path.");
-                    syntax.DefineOption("noanalyze", ref _noanalyze, "Do not analyze resulting base, diff dasm directories. (By default, the directories are analyzed for diffs.)");
-                    syntax.DefineOption("s|sequential", ref _sequential, "Run sequentially; don't do parallel compiles.");
-                    syntax.DefineOption("t|tag", ref _tag, "Name of root in output directory. Allows for many sets of output.");
-                    syntax.DefineOption("c|corelib", ref _corelib, "Diff System.Private.CoreLib.dll.");
-                    syntax.DefineOption("f|frameworks", ref _frameworks, "Diff frameworks.");
-                    syntax.DefineOption("m|metrics", ref _metric, false, "Comma-separated metric to use for diff computations. Available metrics: CodeSize(default), PerfScore, PrologSize, InstrCount, AllocSize, ExtraAllocBytes, DebugClauseCount, DebugVarCount");
-                    syntax.DefineOption("benchmarks", ref _benchmarks, "Diff core benchmarks.");
-                    syntax.DefineOption("tests", ref _tests, "Diff all tests.");
-                    syntax.DefineOption("gcinfo", ref _gcinfo, "Add GC info to the disasm output.");
-                    syntax.DefineOption("debuginfo", ref _debuginfo, "Add Debug info to the disasm output.");
-                    syntax.DefineOption("v|verbose", ref _verbose, "Enable verbose output.");
-                    syntax.DefineOption("nodiffable", ref _noDiffable, "Generate non-diffable asm (pointer values will be left in output).");
-                    syntax.DefineOption("core_root", ref _platformPath, "Path to test CORE_ROOT.");
-                    syntax.DefineOption("test_root", ref _testPath, "Path to test tree. Use with --benchmarks or --tests.");
-                    syntax.DefineOption("base_root", ref _baseRoot, "Path to root of base dotnet/runtime repo.");
-                    syntax.DefineOption("diff_root", ref _diffRoot, "Path to root of diff dotnet/runtime repo.");
-                    syntax.DefineOption("arch", ref _arch, "Architecture to diff (x86, x64).");
-                    syntax.DefineOption("build", ref _build, "Build flavor to diff (Checked, Debug).");
-                    syntax.DefineOption("altjit", ref _altjit, "If set, the name of the altjit to use (e.g., clrjit_win_arm64_x64.dll).");
-                    var pmiOption = syntax.DefineOption("pmi", ref _pmi, "Run asm diffs via pmi.");
-                    syntax.DefineOption("cctors", ref _cctors, "With --pmi, jit and run cctors before jitting other methods");
-                    syntax.DefineOptionList("assembly", ref _assemblyList, "Run asm diffs on a given set of assemblies. An individual item can be an assembly or a directory tree containing assemblies.");
-                    syntax.DefineOption("tsv", ref _tsv, "Dump analysis data to diffs.tsv in output directory.");
-                    syntax.DefineOption("tier0", ref _tier0, "Diff tier0 codegen where possible.");
+                    _diffSpecified = IsSpecified(command.DiffPath);
+                    if (_diffSpecified)
+                    {
+                        _diffPath = Get(command.DiffPath);
+                    }
 
-                    // used by jit-analyze 
-                    syntax.DefineOption("count", ref _count, "provide the count parameter to jit-analyze (default 20)");
+                    if (IsSpecified(command.CrossgenExe)) _crossgenExe = Get(command.CrossgenExe);
+                    if (IsSpecified(command.OutputPath)) _outputPath = Get(command.OutputPath);
+                    if (IsSpecified(command.NoAnalyze)) _noanalyze = Get(command.NoAnalyze);
+                    if (IsSpecified(command.Sequential)) _sequential = Get(command.Sequential);
+                    if (IsSpecified(command.Tag)) _tag = Get(command.Tag);
+                    if (IsSpecified(command.CoreLib)) _corelib = Get(command.CoreLib);
+                    if (IsSpecified(command.Frameworks)) _frameworks = Get(command.Frameworks);
+                    if (IsSpecified(command.Metric)) _metric = Get(command.Metric);
+                    if (IsSpecified(command.Benchmarks)) _benchmarks = Get(command.Benchmarks);
+                    if (IsSpecified(command.Tests)) _tests = Get(command.Tests);
+                    if (IsSpecified(command.GCInfo)) _gcinfo = Get(command.GCInfo);
+                    if (IsSpecified(command.DebugInfo)) _debuginfo = Get(command.DebugInfo);
+                    if (IsSpecified(command.Verbose)) _verbose = Get(command.Verbose);
+                    if (IsSpecified(command.NoDiffable)) _noDiffable = Get(command.NoDiffable);
+                    if (IsSpecified(command.CoreRoot)) _platformPath = Get(command.CoreRoot);
+                    if (IsSpecified(command.TestRoot)) _testPath = Get(command.TestRoot);
+                    if (IsSpecified(command.BaseRoot)) _baseRoot = Get(command.BaseRoot);
+                    if (IsSpecified(command.DiffRoot)) _diffRoot = Get(command.DiffRoot);
+                    if (IsSpecified(command.Arch)) _arch = Get(command.Arch);
+                    if (IsSpecified(command.Build)) _build = Get(command.Build);
+                    if (IsSpecified(command.AltJit)) _altjit = Get(command.AltJit);
+                    if (IsSpecified(command.Pmi)) _pmi = Get(command.Pmi);
+                    if (IsSpecified(command.Cctors)) _cctors = Get(command.Cctors);
+                    if (IsSpecified(command.AssemblyList)) _assemblyList = Get(command.AssemblyList);
+                    if (IsSpecified(command.Tsv)) _tsv = Get(command.Tsv);
+                    if (IsSpecified(command.Tier0)) _tier0 = Get(command.Tier0);
+                    if (IsSpecified(command.Count)) _count = Get(command.Count);
 
-                    // List command section.
-                    syntax.DefineCommand("list", ref _command, Commands.List,
-                        "List defaults and available tools in " + s_configFileName + ".");
-                    syntax.DefineOption("v|verbose", ref _verbose, "Enable verbose output.");
-
-                    // Install command section.
-                    syntax.DefineCommand("install", ref _command, Commands.Install, "Install tool in " + s_configFileName + ".");
-                    syntax.DefineOption("j|job", ref _jobName, "Name of the job.");
-                    syntax.DefineOption("n|number", ref _number, "Job number.");
-                    syntax.DefineOption("l|last_successful", ref _lastSuccessful, "Last successful build.");
-                    syntax.DefineOption("b|branch", ref _branchName, "Name of branch.");
-                    syntax.DefineOption("v|verbose", ref _verbose, "Enable verbose output.");
-
-                    // Uninstall command section.s
-                    syntax.DefineCommand("uninstall", ref _command, Commands.Uninstall, "Uninstall tool from " + s_configFileName + ".");
-                    syntax.DefineOption("t|tag", ref _tag, "Name of tool tag in config file.");
-
-                    _baseSpecified = baseOption.IsSpecified;
-                    _diffSpecified = diffOption.IsSpecified;
-
-                    if (pmiOption.IsSpecified)
+                    if (_pmi)
                     {
                         _command = Commands.PmiDiff;
                     }
-                });
+                }
+                else if (_command == Commands.List)
+                {
+                    if (IsSpecified(command.Verbose)) _verbose = Get(command.Verbose);
+                }
+                else if (_command == Commands.Install)
+                {
+                    if (IsSpecified(command.JobName)) _jobName = Get(command.JobName);
+                    if (IsSpecified(command.Number)) _number = Get(command.Number);
+                    if (IsSpecified(command.LastSuccessful)) _lastSuccessful = Get(command.LastSuccessful);
+                    if (IsSpecified(command.BranchName)) _branchName = Get(command.BranchName);
+                    if (IsSpecified(command.Verbose)) _verbose = Get(command.Verbose);
+                }
+                else if (_command == Commands.Uninstall)
+                {
+                    if (IsSpecified(command.Tag)) _tag = Get(command.Tag);
+                }
 
                 SetRID();
 
@@ -776,7 +779,8 @@ namespace ManagedCodeGen
             private void DisplayUsageMessage()
             {
                 Console.Error.WriteLine("");
-                Console.Error.Write(_syntaxResult.GetHelpText(100));
+                Console.Error.WriteLine("Usage: jit-diff <diff|list|install|uninstall> [options]");
+                Console.Error.WriteLine("Run 'jit-diff <command> --help' for command-specific options.");
 
                 if (_command == Commands.Diff)
                 {
@@ -1348,36 +1352,8 @@ namespace ManagedCodeGen
 
         public static int Main(string[] args)
         {
-            Config config = new Config(args);
-            int ret = 0;
-
-            switch (config.DoCommand)
-            {
-                case Commands.Diff:
-                case Commands.PmiDiff:
-                    {
-                        ret = DiffTool.DiffCommand(config);
-                    }
-                    break;
-                case Commands.List:
-                    {
-                        // List command: list loaded configuration
-                        ret = config.ListCommand();
-                    }
-                    break;
-                case Commands.Install:
-                    {
-                        ret = InstallCommand(config);
-                    }
-                    break;
-                case Commands.Uninstall:
-                    {
-                        ret = UninstallCommand(config);
-                    }
-                    break;
-            }
-
-            return ret;
+            var command = new JitDiffRootCommand(args).UseVersion();
+            return command.Parse(args).Invoke();
         }
     }
 }
